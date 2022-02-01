@@ -424,6 +424,7 @@ slice_like_impl_cmp_traits! {
     Vec<U>,
     [U],
     &[U],
+    &mut [U],
 }
 
 #[cfg(feature = "const_params")]
@@ -440,13 +441,13 @@ slice_like_impl_cmp_traits! {
 }
 
 deref_coerced_impl_cmp_traits! {
-    RCow<'_, str>;
+    RCow<'a, str>;
     coerce_to = str,
     [
         String,
         str,
         &str,
-        Cow<'_, str>,
+        Cow<'b, str>,
     ]
 }
 
