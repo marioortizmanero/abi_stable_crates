@@ -3,12 +3,14 @@
 use std::{
     borrow::{Borrow, BorrowMut, Cow},
     cmp::Ordering,
+    fmt,
+    hash::{Hash, Hasher},
     io,
     iter::FromIterator,
     marker::PhantomData,
     mem::{self, ManuallyDrop},
     ops::{Bound, Deref, DerefMut, Index, IndexMut, RangeBounds},
-    ptr,
+    ptr::{self, NonNull},
     slice::SliceIndex,
 };
 
@@ -72,7 +74,7 @@ mod private {
     #[derive(StableAbi)]
     // #[sabi(debug_print)]
     pub struct RVec<T> {
-        pub(super) buffer: *mut T,
+        pub(super) buffer: NonNull<T>,
         pub(super) length: usize,
         capacity: usize,
         vtable: VecVTable_Ref<T>,
@@ -103,7 +105,7 @@ mod private {
             // when it's possible to call `Vec::{as_mut_ptr, capacity, len}` in const contexts.
             RVec {
                 vtable: VTableGetter::<T>::LIB_VTABLE,
-                buffer: std::mem::align_of::<T>() as *mut T,
+                buffer: unsafe { NonNull::new_unchecked(std::mem::align_of::<T>() as *mut T) },
                 length: 0,
                 capacity: 0_usize.wrapping_sub((std::mem::size_of::<T>() == 0) as usize),
                 _marker: PhantomData,
@@ -120,15 +122,6 @@ mod private {
         #[inline(always)]
         pub(super) fn vtable(&self) -> VecVTable_Ref<T> {
             self.vtable
-        }
-
-        #[inline(always)]
-        pub(super) fn buffer(&self) -> *const T {
-            self.buffer
-        }
-
-        pub(super) fn buffer_mut(&mut self) -> *mut T {
-            self.buffer
         }
 
         /// This returns the amount of elements this RVec can store without reallocating.
@@ -161,7 +154,7 @@ mod private {
             F: FnOnce(&mut Vec<T>) -> U,
         {
             let mut old = mem::replace(self, RVec::new()).piped(ManuallyDrop::new);
-            let mut list = Vec::<T>::from_raw_parts(old.buffer_mut(), old.len(), old.capacity());
+            let mut list = Vec::<T>::from_raw_parts(old.as_mut_ptr(), old.len(), old.capacity());
             let ret = f(&mut list);
             ptr::write(self, list.into());
             ret
@@ -170,12 +163,22 @@ mod private {
         /// Gets a raw pointer to the start of this RVec's buffer.
         #[inline(always)]
         pub const fn as_ptr(&self) -> *const T {
-            self.buffer
+            // We shadow the slice method of the same name to avoid going through
+            // `deref`, which creates an intermediate reference.
+            // FIXME: this should use std::intrinsics::assume to hint that the
+            // returned pointer is not null, but it requires multiple unstable
+            // features.
+            self.buffer.as_ptr()
         }
         /// Gets a mutable raw pointer to the start of this RVec's buffer.
         #[inline(always)]
         pub fn as_mut_ptr(&mut self) -> *mut T {
-            self.buffer
+            // We shadow the slice method of the same name to avoid going through
+            // `deref_mut`, which creates an intermediate reference.
+            // FIXME: this should use std::intrinsics::assume to hint that the
+            // returned pointer is not null, but it requires multiple unstable
+            // features.
+            self.buffer.as_ptr()
         }
     }
     impl_from_rust_repr! {
@@ -184,7 +187,10 @@ mod private {
                 let mut this = ManuallyDrop::new(this);
                 RVec {
                     vtable: VTableGetter::<T>::LIB_VTABLE,
-                    buffer: this.as_mut_ptr(),
+                    // SAFETY: `Vec` is guaranteed to never be null
+                    buffer: unsafe {
+                        NonNull::new_unchecked(this.as_mut_ptr())
+                    },
                     length: this.len(),
                     capacity: this.capacity(),
                     _marker: PhantomData,
@@ -319,7 +325,7 @@ impl<T> RVec<T> {
     ///
     /// ```
     pub fn as_slice(&self) -> &[T] {
-        unsafe { ::std::slice::from_raw_parts(self.buffer(), self.len()) }
+        self
     }
 
     /// Creates a `&mut [T]` with access to all the elements of the `RVec<T>`.
@@ -334,8 +340,7 @@ impl<T> RVec<T> {
     ///
     /// ```
     pub fn as_mut_slice(&mut self) -> &mut [T] {
-        let len = self.len();
-        unsafe { ::std::slice::from_raw_parts_mut(self.buffer_mut(), len) }
+        self
     }
 
     /// Creates an `RSlice<'_, T>` with access to all the elements of the `RVec<T>`.
@@ -501,7 +506,7 @@ impl<T> RVec<T> {
             if ::std::ptr::eq(this_vtable.0.to_raw_ptr(), other_vtable.0.to_raw_ptr())
                 || this_vtable.type_id() == other_vtable.type_id()
             {
-                Vec::from_raw_parts(this.buffer_mut(), this.len(), this.capacity())
+                Vec::from_raw_parts(this.as_mut_ptr(), this.len(), this.capacity())
             } else {
                 let len = this.length;
                 let mut ret = Vec::with_capacity(len);
@@ -590,7 +595,7 @@ impl<T> RVec<T> {
         }
 
         unsafe {
-            let buffer = self.buffer_mut();
+            let buffer = self.as_mut_ptr();
             if index < self.length {
                 ptr::copy(
                     buffer.offset(index as isize),
@@ -624,7 +629,7 @@ impl<T> RVec<T> {
             return None;
         }
         unsafe {
-            let buffer = self.buffer_mut();
+            let buffer = self.as_mut_ptr();
             self.length -= 1;
             let result = ptr::read(buffer.offset(index as isize));
             ptr::copy(
@@ -698,7 +703,7 @@ impl<T> RVec<T> {
     pub fn swap_remove(&mut self, index: usize) -> T {
         unsafe {
             let hole: *mut T = &mut self[index];
-            let last = ptr::read(self.buffer_mut().offset((self.length - 1) as isize));
+            let last = ptr::read(self.as_mut_ptr().offset((self.length - 1) as isize));
             self.length -= 1;
             ptr::replace(hole, last)
         }
@@ -728,7 +733,7 @@ impl<T> RVec<T> {
             self.grow_capacity_to_1();
         }
         unsafe {
-            ptr::write(self.buffer_mut().offset(self.length as isize), new_val);
+            ptr::write(self.as_mut_ptr().offset(self.length as isize), new_val);
         }
         self.length += 1;
     }
@@ -761,7 +766,7 @@ impl<T> RVec<T> {
         } else {
             unsafe {
                 self.length -= 1;
-                Some(ptr::read(self.buffer_mut().offset(self.length as isize)))
+                Some(ptr::read(self.as_mut_ptr().offset(self.length as isize)))
             }
         }
     }
@@ -881,7 +886,7 @@ impl<T> RVec<T> {
         }
         DrainFilter {
             vec_len: &mut self.length,
-            allocation_start: self.buffer,
+            allocation_start: self.buffer.as_ptr(),
             idx: 0,
             del: 0,
             old_len,
@@ -895,7 +900,7 @@ impl<T> RVec<T> {
         self.length = to;
         unsafe {
             ptr::drop_in_place(std::slice::from_raw_parts_mut(
-                self.buffer.add(to),
+                self.as_mut_ptr().add(to),
                 old_length - to,
             ))
         }
@@ -997,7 +1002,7 @@ where
                 //
                 // Also replaced usage of slice with raw pointers based on a
                 // comment mentioning how slices must only reference initialized memory.
-                let start = self.buffer_mut();
+                let start = self.as_mut_ptr();
                 let mut current = start.add(old_len);
                 let end = start.add(new_len);
                 while current != end {
@@ -1059,7 +1064,7 @@ where
         self.reserve(slic_.len());
         let old_len = self.len();
         unsafe {
-            let entire: *mut T = self.buffer_mut().offset(old_len as isize);
+            let entire: *mut T = self.as_mut_ptr().offset(old_len as isize);
             ptr::copy_nonoverlapping(slic_.as_ptr(), entire, slic_.len());
             self.length = old_len + slic_.len();
         }
@@ -1086,14 +1091,14 @@ impl<T> Deref for RVec<T> {
 
     #[inline]
     fn deref(&self) -> &Self::Target {
-        self.as_slice()
+        unsafe { ::std::slice::from_raw_parts(self.as_ptr(), self.len()) }
     }
 }
 
 impl<T> DerefMut for RVec<T> {
     #[inline]
     fn deref_mut(&mut self) -> &mut Self::Target {
-        self.as_mut_slice()
+        unsafe { ::std::slice::from_raw_parts_mut(self.as_mut_ptr(), self.len()) }
     }
 }
 
@@ -1117,6 +1122,48 @@ impl<T> Borrow<[T]> for RVec<T> {
 impl<T> BorrowMut<[T]> for RVec<T> {
     fn borrow_mut(&mut self) -> &mut [T] {
         self
+    }
+}
+
+impl<T: fmt::Debug> fmt::Debug for RVec<T> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<T> Eq for RVec<T> where T: Eq {}
+
+impl<T, U> PartialEq<RVec<U>> for RVec<T>
+where
+    T: PartialEq<U>,
+{
+    #[inline]
+    fn eq(&self, other: &RVec<U>) -> bool {
+        PartialEq::eq(&**self, &**other)
+    }
+}
+
+impl<T: Ord> Ord for RVec<T> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        if std::ptr::eq(&**self, &**other) {
+            return Ordering::Equal;
+        }
+        (&**self).cmp(&**other)
+    }
+}
+
+impl<T: PartialOrd> PartialOrd for RVec<T> {
+    #[inline]
+    fn partial_cmp(&self, other: &RVec<T>) -> Option<Ordering> {
+        PartialOrd::partial_cmp(&**self, &**other)
+    }
+}
+
+impl<T: Hash> Hash for RVec<T> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(&**self, state)
     }
 }
 
@@ -1144,12 +1191,6 @@ slice_like_impl_cmp_traits! {
     std::borrow::Cow<'_, [U]>,
     // TODO: add back
     // crate::std_types::RCowSlice<'_, U>,
-}
-
-shared_impls! {
-    mod = buffer_impls
-    new_type = RVec[][T],
-    original_type = Vec,
 }
 
 impl_into_rust_repr! {
@@ -1291,7 +1332,7 @@ impl<T> RVec<T> {
             };
             let slice_len = slice_end - slice_start;
 
-            let allocation_start = self.buffer;
+            let allocation_start = self.as_mut_ptr();
             let removed_start = allocation_start.add(slice_start);
             let iter = RawValIter::new(removed_start, slice_len);
             let old_length = self.length;
@@ -1318,7 +1359,7 @@ impl<T> IntoIterator for RVec<T> {
         unsafe {
             let _buf = ManuallyDrop::new(self);
             let len = _buf.length;
-            let ptr = _buf.buffer;
+            let ptr = _buf.buffer.as_ptr();
             let iter = RawValIter::new(ptr, len);
             IntoIter { iter, _buf }
         }
@@ -1489,7 +1530,7 @@ extern "C" fn destructor_vec<T>(this: &mut RVec<T>) {
     extern_fn_panic_handling! {
         unsafe {
             drop(Vec::from_raw_parts(
-                this.buffer_mut(),
+                this.as_mut_ptr(),
                 this.len(),
                 this.capacity(),
             ));

@@ -2,7 +2,9 @@
 
 use std::{
     borrow::{Borrow, Cow},
+    cmp::Ordering,
     fmt,
+    hash::{Hash, Hasher},
     ops::Deref,
 };
 
@@ -25,39 +27,31 @@ mod tests;
 
 // TODO: documentation
 
-pub trait QueryOwnedType: Deref {
+pub trait IntoOwned: Copy + Deref {
     type Owned: Borrow<Self::Target>;
-}
 
-pub trait IntoOwned: Copy + QueryOwnedType {
     fn into_owned(self) -> Self::Owned;
 }
 
-impl<T> QueryOwnedType for &T {
-    type Owned = T;
-}
-
 impl<T: Clone> IntoOwned for &T {
+    type Owned = T;
+
     fn into_owned(self) -> T {
         self.clone()
     }
 }
 
-impl QueryOwnedType for RStr<'_> {
-    type Owned = RString;
-}
-
 impl IntoOwned for RStr<'_> {
+    type Owned = RString;
+
     fn into_owned(self) -> RString {
         self.into()
     }
 }
 
-impl<T> QueryOwnedType for RSlice<'_, T> {
-    type Owned = RVec<T>;
-}
-
 impl<T: Clone> IntoOwned for RSlice<'_, T> {
+    type Owned = RVec<T>;
+
     fn into_owned(self) -> RVec<T> {
         self.to_rvec()
     }
@@ -105,26 +99,21 @@ impl<T: Clone> IntoOwned for RSlice<'_, T> {
 ///
 #[repr(C)]
 #[derive(StableAbi)]
-#[sabi(bound = "<B as QueryOwnedType>::Owned: StableAbi")]
-pub enum RCow<B>
-where
-    B: IntoOwned,
-{
+pub enum RCow<B, O> {
     Borrowed(B),
-    Owned(B::Owned),
+    Owned(O),
 }
 
-// TODO: remove BCow?
 // TODO: add RCowSliceMut?
-pub type BCow<'a, T> = RCow<&'a T>;
-pub type RCowStr<'a> = RCow<RStr<'a>>;
-pub type RCowSlice<'a, T> = RCow<RSlice<'a, T>>;
+pub type BCow<'a, T> = RCow<&'a T, T>;
+pub type RCowStr<'a> = RCow<RStr<'a>, RString>;
+pub type RCowSlice<'a, T> = RCow<RSlice<'a, T>, RVec<T>>;
 
 use self::RCow::{Borrowed, Owned};
 
 // ///////////////////////////////////////////////////////////////////////////
 
-impl<B: IntoOwned> RCow<B> {
+impl<B: IntoOwned> RCow<B, B::Owned> {
     /// Get a mutable reference to the owned form of RCow,
     /// converting to the owned form if it is currently the borrowed form.
     ///
@@ -185,29 +174,6 @@ impl<B: IntoOwned> RCow<B> {
         }
     }
 
-    // /// Gets the contents of the RCow casted to the borrowed variant.
-    // ///
-    // /// # Examples
-    // ///
-    // /// ```
-    // /// use abi_stable::std_types::{RCow, RSlice};
-    // /// {
-    // ///     let cow: RCow<'_, [u8]> = RCow::from(&[0, 1, 2, 3][..]);
-    // ///     assert_eq!(cow.borrowed(), RSlice::from_slice(&[0, 1, 2, 3]));
-    // /// }
-    // /// {
-    // ///     let cow: RCow<'_, [u8]> = RCow::from(vec![0, 1, 2, 3]);
-    // ///     assert_eq!(cow.borrowed(), RSlice::from_slice(&[0, 1, 2, 3]));
-    // /// }
-    // /// ```
-    // pub fn borrowed(&self) -> B {
-    //     match self {
-    //         Borrowed(x) => *x,
-    //         // TODO: owned -> borrowed?
-    //         Owned(x) => &*x,
-    //     }
-    // }
-
     /// Whether this is a borrowing RCow.
     ///
     /// # Examples
@@ -248,7 +214,7 @@ impl<B: IntoOwned> RCow<B> {
     }
 }
 
-impl<'a, B: IntoOwned> RCow<&'a B> {
+impl<'a, B: IntoOwned> BCow<'a, B> {
     pub fn borrowed(&'a self) -> &'a B {
         match self {
             Borrowed(x) => *x,
@@ -256,7 +222,7 @@ impl<'a, B: IntoOwned> RCow<&'a B> {
         }
     }
 }
-impl<'a, B: IntoOwned> RCowSlice<'a, B> {
+impl<'a, B: Clone> RCowSlice<'a, B> {
     pub fn borrowed(&'a self) -> RSlice<'a, B> {
         match self {
             Borrowed(x) => *x,
@@ -293,14 +259,14 @@ impl<B: IntoOwned> RCow<B> {
     }
 }
 
-impl<B> Copy for RCow<B>
+impl<B> Copy for RCow<B, B::Owned>
 where
     B: IntoOwned,
     B::Owned: Copy,
 {
 }
 
-impl<B> Clone for RCow<B>
+impl<B> Clone for RCow<B, B::Owned>
 where
     B: IntoOwned,
     B::Owned: Clone,
@@ -313,7 +279,7 @@ where
     }
 }
 
-impl<B> Deref for RCow<&'_ B>
+impl<B> Deref for BCow<'_, B>
 where
     B: IntoOwned,
 {
@@ -353,9 +319,152 @@ where
     }
 }
 
+impl<B> fmt::Debug for BCow<'_, B>
+where
+    B: fmt::Debug + IntoOwned + ?Sized,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+impl fmt::Debug for RCowStr<'_> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+impl<B> fmt::Debug for RCowSlice<'_, B>
+where
+    B: fmt::Debug + Clone + ?Sized,
+{
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        fmt::Debug::fmt(&**self, f)
+    }
+}
+
+impl<B> Eq for RCow<B, B::Owned>
+where
+    B: Eq + IntoOwned,
+    RCow<B, B::Owned>: PartialEq,
+{
+}
+
+impl<'a, 'b, A, B> PartialEq<BCow<'b, B>> for BCow<'a, A>
+where
+    A: PartialEq<B> + IntoOwned + ?Sized,
+    B: IntoOwned + ?Sized,
+{
+    #[inline]
+    fn eq(&self, other: &BCow<'b, B>) -> bool {
+        PartialEq::eq(&**self, &**other)
+    }
+}
+impl<'a, 'b> PartialEq<RCowStr<'b>> for RCowStr<'a> {
+    #[inline]
+    fn eq(&self, other: &RCowStr<'b>) -> bool {
+        PartialEq::eq(&**self, &**other)
+    }
+}
+impl<'a, 'b, A, B> PartialEq<RCowSlice<'b, B>> for RCowSlice<'a, A>
+where
+    A: PartialEq<B> + Clone + ?Sized,
+    B: Clone + ?Sized,
+{
+    #[inline]
+    fn eq(&self, other: &RCowSlice<'b, B>) -> bool {
+        PartialEq::eq(&**self, &**other)
+    }
+}
+
+impl<B> Ord for BCow<'_, B>
+where
+    B: Ord + IntoOwned + ?Sized,
+{
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        if std::ptr::eq(&**self, &**other) {
+            return Ordering::Equal;
+        }
+        (&**self).cmp(&**other)
+    }
+}
+impl Ord for RCowStr<'_> {
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        if std::ptr::eq(&**self, &**other) {
+            return Ordering::Equal;
+        }
+        (&**self).cmp(&**other)
+    }
+}
+impl<B> Ord for RCowSlice<'_, B>
+where
+    B: Ord + Clone + ?Sized,
+{
+    #[inline]
+    fn cmp(&self, other: &Self) -> Ordering {
+        if std::ptr::eq(&**self, &**other) {
+            return Ordering::Equal;
+        }
+        (&**self).cmp(&**other)
+    }
+}
+
+impl<'a, 'b, A, B> PartialOrd<BCow<'b, B>> for BCow<'a, A>
+where
+    A: PartialOrd<B> + IntoOwned + ?Sized,
+    B: IntoOwned + ?Sized,
+{
+    #[inline]
+    fn partial_cmp(&self, other: &BCow<'b, B>) -> Option<Ordering> {
+        PartialOrd::partial_cmp(&**self, &**other)
+    }
+}
+impl<'a, 'b> PartialOrd<RCowStr<'b>> for RCowStr<'a> {
+    #[inline]
+    fn partial_cmp(&self, other: &RCowStr<'b>) -> Option<Ordering> {
+        PartialOrd::partial_cmp(&**self, &**other)
+    }
+}
+impl<'a, 'b, A, B> PartialOrd<RCowSlice<'b, B>> for RCowSlice<'a, A>
+where
+    [A]: PartialOrd<[B]>,
+    A: PartialEq<B> + Clone + ?Sized,
+    B: Clone + ?Sized,
+{
+    #[inline]
+    fn partial_cmp(&self, other: &RCowSlice<'b, B>) -> Option<Ordering> {
+        PartialOrd::partial_cmp(&**self, &**other)
+    }
+}
+
+impl<B> Hash for BCow<'_, B>
+where
+    B: Hash + IntoOwned + ?Sized,
+{
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(&**self, state)
+    }
+}
+impl Hash for RCowStr<'_> {
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(&**self, state)
+    }
+}
+impl<B> Hash for RCowSlice<'_, B>
+where
+    B: Hash + Clone + ?Sized,
+{
+    #[inline]
+    fn hash<H: Hasher>(&self, state: &mut H) {
+        Hash::hash(&**self, state)
+    }
+}
+
 ////////////////////
 
-impl<B> Borrow<B> for RCow<&'_ B>
+impl<B> Borrow<B> for BCow<'_, B>
 where
     B: IntoOwned,
 {
@@ -377,7 +486,7 @@ where
     }
 }
 
-impl<B> AsRef<B> for RCow<&'_ B>
+impl<B> AsRef<B> for BCow<'_, B>
 where
     B: IntoOwned,
 {
@@ -407,6 +516,7 @@ slice_like_impl_cmp_traits! {
     Vec<U>,
     [U],
     &[U],
+    &mut [U]
 }
 
 #[cfg(feature = "const_params")]
@@ -423,42 +533,18 @@ slice_like_impl_cmp_traits! {
 }
 
 deref_coerced_impl_cmp_traits! {
-    RCowStr<'_>;
+    RCowStr<'a>;
     coerce_to = str,
     [
         String,
         str,
-        &str,
-        Cow<'_, str>,
+        &'b str,
+        Cow<'b, str>,
     ]
 }
 
-// TODO: fix; macro is broken now
-// shared_impls! {
-//     mod = slice_impls_ref
-//     new_type = RCow['a][&'a B]
-//     extra[B]
-//     constrained[B]
-//     where [ B: IntoOwned ],
-//     original_type = void,
-// }
-shared_impls! {
-    mod = slice_impls_str
-    new_type = RCowStr['a][]
-    where [],
-    original_type = void,
-}
-shared_impls! {
-    mod = slice_impls_slice
-    new_type = RCowSlice['a][]
-    extra[B]
-    constrained[B]
-    where [ B: Clone ],
-    original_type = void,
-}
-
 impl_into_rust_repr! {
-    impl['a, B] Into<Cow<'a, B>> for RCow<&'a B>
+    impl['a, B] Into<Cow<'a, B>> for BCow<'a, B>
     where[
         B: IntoOwned
     ]{
@@ -500,7 +586,7 @@ impl_into_rust_repr! {
 ////////////////////////////////////////////////////////////
 
 impl_from_rust_repr! {
-    impl['a, B] From<Cow<'a, B>> for RCow<&'a B>
+    impl['a, B] From<Cow<'a, B>> for BCow<'a, B>
     where [
         B: IntoOwned,
     ]{
@@ -635,7 +721,7 @@ where
 
 ////////////////////////////////////////////////////////////
 
-impl<'a, B> fmt::Display for RCow<&'a B>
+impl<'a, B> fmt::Display for BCow<'a, B>
 where
     B: IntoOwned + fmt::Display,
 {
@@ -770,7 +856,7 @@ impl<'de, 'a> Deserialize<'de> for RCowStr<'a> {
     }
 }
 
-impl<'de, 'a, T> Deserialize<'de> for RCow<&'a T>
+impl<'de, 'a, T> Deserialize<'de> for BCow<'a, T>
 where
     T: Clone + Deserialize<'de>,
 {
@@ -782,7 +868,7 @@ where
     }
 }
 
-impl<'a, B> Serialize for RCow<&'a B>
+impl<'a, B> Serialize for BCow<'a, B>
 where
     B: IntoOwned + Serialize,
 {
