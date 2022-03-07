@@ -69,8 +69,8 @@ crossbeam-channel = { version = "0.5.1", optional = true }
 serde_json = { version = "1.0.66", features = ["raw_value"], optional = true }
 paste = "1.0"
 hashbrown = "0.12.0"
-# TODO: clean up once remove_entry is upstreamed
-halfbrown = { version = "0.1.12", git = "https://github.com/marioortizmanero/halfbrown.git", branch = "remove-entry", optional = true }
+# TODO: clean up once everything is upstreamed
+halfbrown = { version = "0.1.12", git = "https://github.com/marioortizmanero/halfbrown.git", branch = "iter-clone", optional = true }
 # halfbrown = { version = "0.1.12", optional = true }
 
 [dependencies.core_extensions]
