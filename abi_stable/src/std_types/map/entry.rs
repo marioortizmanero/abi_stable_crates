@@ -51,12 +51,44 @@ type UnerasedOccupiedEntry<'a, K, V, S> = ManuallyDrop<OccupiedEntry<'a, MapKey<
 
 type UnerasedVacantEntry<'a, K, V, S> = ManuallyDrop<VacantEntry<'a, MapKey<K>, V, S>>;
 
+#[cfg(feature = "halfbrown")]
+pub type UnerasedRRawEntryBuilder<'a, K, V, S> = ManuallyDrop<halfbrown::RawEntryBuilder<'a, MapKey<K>, V, S>>;
+
+#[cfg(feature = "halfbrown")]
+pub type UnerasedRRawEntryBuilderMut<'a, K, V, S> = ManuallyDrop<halfbrown::RawEntryBuilderMut<'a, MapKey<K>, V, S>>;
+
 impl<'a, K: 'a, V: 'a, S: 'a + BuildHasher> ErasedType<'a> for ErasedOccupiedEntry<K, V, S> {
     type Unerased = UnerasedOccupiedEntry<'a, K, V, S>;
 }
 
 impl<'a, K: 'a, V: 'a, S: 'a + BuildHasher> ErasedType<'a> for ErasedVacantEntry<K, V, S> {
     type Unerased = UnerasedVacantEntry<'a, K, V, S>;
+}
+
+#[cfg(feature = "halfbrown")]
+#[derive(StableAbi)]
+#[repr(C)]
+#[sabi(
+    // The hasher doesn't matter
+    unsafe_unconstrained(S),
+)]
+struct ErasedRRawEntryBuilder<K, V, S: BuildHasher>(PhantomData<(K, V)>, UnsafeIgnoredType<S>);
+#[cfg(feature = "halfbrown")]
+impl<'a, K: 'a, V: 'a, S: 'a + BuildHasher> ErasedType<'a> for ErasedRRawEntryBuilder<K, V, S> {
+    type Unerased = UnerasedRRawEntryBuilder<'a, K, V, S>;
+}
+
+#[cfg(feature = "halfbrown")]
+#[derive(StableAbi)]
+#[repr(C)]
+#[sabi(
+    // The hasher doesn't matter
+    unsafe_unconstrained(S),
+)]
+struct ErasedRRawEntryBuilderMut<K, V, S: BuildHasher>(PhantomData<(K, V)>, UnsafeIgnoredType<S>);
+#[cfg(feature = "halfbrown")]
+impl<'a, K: 'a, V: 'a, S: 'a + BuildHasher> ErasedType<'a> for ErasedRRawEntryBuilderMut<K, V, S> {
+    type Unerased = UnerasedRRawEntryBuilderMut<'a, K, V, S>;
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////
@@ -86,6 +118,28 @@ where
             }
             BoxedREntry::Vacant(entry) => entry.piped(RVacantEntry::new).piped(REntry::Vacant),
         }
+    }
+}
+
+#[cfg(feature = "halfbrown")]
+impl<'a, K, V, S> RRawEntryBuilder<'a, K, V, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    pub(super) unsafe fn new(entry: &'a self::entry::UnerasedRRawEntryBuilder<'a, K, V, S>) -> Self {
+        self::entry::UnerasedRRawEntryBuilder::new(entry)
+    }
+}
+
+#[cfg(feature = "halfbrown")]
+impl<'a, K, V, S> RRawEntryBuilderMut<'a, K, V, S>
+where
+    K: Eq + Hash,
+    S: BuildHasher,
+{
+    pub(super) unsafe fn new(entry: &'a mut self::entry::UnerasedRRawEntryBuilderMut<'a, K, V, S>) -> Self {
+        self::entry::UnerasedRRawEntryBuilderMut::new(entry)
     }
 }
 
@@ -309,6 +363,38 @@ pub struct RVacantEntry<'a, K, V, S: BuildHasher> {
     entry: RMut<'a, ErasedVacantEntry<K, V, S>>,
     vtable: VacantVTable_Ref<K, V, S>,
     _marker: UnsafeIgnoredType<VacantEntry<'a, K, V, S>>,
+}
+
+#[cfg(feature = "halfbrown")]
+#[derive(StableAbi)]
+#[repr(C)]
+#[sabi(
+    bound = "K: 'a",
+    bound = "V: 'a",
+    bound = "S: 'a",
+    // The hasher doesn't matter
+    unsafe_unconstrained(S),
+)]
+pub struct RRawEntryBuilder<'a, K, V, S: BuildHasher> {
+    entry: RMut<'a, ErasedRRawEntryBuilder<K, V, S>>,
+    vtable: RawEntryVTable_Ref<K, V, S>,
+    _marker: UnsafeIgnoredType<halfbrown::RawEntryBuilder<'a, K, V, S>>,
+}
+
+#[cfg(feature = "halfbrown")]
+#[derive(StableAbi)]
+#[repr(C)]
+#[sabi(
+    bound = "K: 'a",
+    bound = "V: 'a",
+    bound = "S: 'a",
+    // The hasher doesn't matter
+    unsafe_unconstrained(S),
+)]
+pub struct RRawEntryBuilderMut<'a, K, V, S: BuildHasher> {
+    entry: RMut<'a, ErasedRRawEntryBuilderMut<K, V, S>>,
+    vtable: RawEntryMutVTable_Ref<K, V, S>,
+    _marker: UnsafeIgnoredType<halfbrown::RawEntryBuilderMut<'a, K, V, S>>,
 }
 
 /////////////////////////////////////////////////////////////////////////////////////////////

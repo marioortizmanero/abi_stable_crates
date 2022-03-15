@@ -161,6 +161,32 @@ where
             unsafe { REntry::new(entry_mut) }
         })
     }
+
+    #[cfg(feature = "halfbrown")]
+    pub(super) unsafe extern "C" fn raw_entry(this: RRef<'_, Self>) -> self::entry::RRawEntryBuilder<'_, K, V, S> {
+        Self::run(this, |this| {
+            this.raw_entry = None;
+            let map = &this.map;
+            let raw_entry = this
+                .raw_entry
+                .get_or_insert_with(|| { map }.raw_entry().piped(self::entry::UnerasedRRawEntryBuilder::new));
+
+            unsafe { self::entry::RRawEntryBuilder::new(raw_entry) }
+        })
+    }
+
+    #[cfg(feature = "halfbrown")]
+    pub(super) unsafe extern "C" fn raw_entry_mut(this: RMut<'_, Self>) -> self::entry::RRawEntryBuilderMut<'_, K, V, S> {
+        Self::run_mut(this, |this| {
+            this.raw_entry_mut = None;
+            let map = &mut this.map;
+            let raw_entry_mut = this
+                .raw_entry_mut
+                .get_or_insert_with(|| { map }.raw_entry_mut().piped(self::entry::UnerasedRRawEntryBuilderMut::new));
+
+            unsafe { self::entry::RRawEntryBuilderMut::new(raw_entry_mut) }
+        })
+    }
 }
 
 fn map_iter_ref<'a, K, V: 'a>((key, val): (&'a MapKey<K>, V)) -> Tuple2<&'a K, V> {

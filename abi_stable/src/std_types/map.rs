@@ -120,6 +120,10 @@ pub struct RHashMap<K, V, S: BuildHasher = DefaultHashBuilder> {
 struct BoxedHashMap<'a, K, V, S: BuildHasher> {
     map: HashMap<MapKey<K>, V, S>,
     entry: Option<BoxedREntry<'a, K, V, S>>,
+    #[cfg(feature = "halfbrown")]
+    raw_entry: Option<UnerasedRRawEntryBuilder<'a, K, V, S>>,
+    #[cfg(feature = "halfbrown")]
+    raw_entry_mut: Option<UnerasedRRawEntryBuilderMut<'a, K, V, S>>,
 }
 
 /// An RHashMap iterator,
@@ -766,6 +770,20 @@ impl<K, V, S: BuildHasher> RHashMap<K, V, S> {
         unsafe { vtable.entry()(self.map.as_rmut(), key) }
     }
 
+    #[cfg(feature = "halfbrown")]
+    pub fn raw_entry(&self) -> self::entry::RRawEntryBuilder<'_, K, V, S> {
+        let vtable = self.vtable();
+
+        unsafe { vtable.raw_entry()(self.map.as_rref()) }
+    }
+
+    #[cfg(feature = "halfbrown")]
+    pub fn raw_entry_mut(&self) -> self::entry::RRawEntryBuilderMut<'_, K, V, S> {
+        let vtable = self.vtable();
+
+        unsafe { vtable.raw_entry_mut()(self.map.as_rmut()) }
+    }
+
     /// An iterator visiting all keys in arbitrary order.
     /// The iterator element type is `&'a K`.
     ///
@@ -1270,6 +1288,10 @@ struct VTable<K, V, S: BuildHasher> {
     iter_mut: unsafe extern "C" fn(RMut<'_, ErasedMap<K, V, S>>) -> IterMut<'_, K, V>,
     drain: unsafe extern "C" fn(RMut<'_, ErasedMap<K, V, S>>) -> Drain<'_, K, V>,
     iter_val: unsafe extern "C" fn(RBox<ErasedMap<K, V, S>>) -> IntoIter<K, V>,
+    #[cfg(feature = "halfbrown")]
+    raw_entry: unsafe extern "C" fn(RRef<'_, ErasedMap<K, V, S>>) -> self::entry::RRawEntryBuilder<'_, K, V, S>,
+    #[cfg(feature = "halfbrown")]
+    raw_entry_mut: unsafe extern "C" fn(RMut<'_, ErasedMap<K, V, S>>) -> self::entry::RRawEntryBuilderMut<'_, K, V, S>,
     #[sabi(last_prefix_field)]
     entry: unsafe extern "C" fn(RMut<'_, ErasedMap<K, V, S>>, K) -> REntry<'_, K, V, S>,
 }
@@ -1287,7 +1309,14 @@ where
     fn erased_map(hash_builder: S) -> RBox<ErasedMap<K, V, S>> {
         unsafe {
             let map = HashMap::<MapKey<K>, V, S>::with_hasher(hash_builder);
-            let boxed = BoxedHashMap { map, entry: None };
+            let boxed = BoxedHashMap {
+                map,
+                entry: None,
+                #[cfg(feature = "halfbrown")]
+                raw_entry: None,
+                #[cfg(feature = "halfbrown")]
+                raw_entry_mut: None
+            };
             let boxed = RBox::new(boxed);
             mem::transmute::<RBox<_>, RBox<ErasedMap<K, V, S>>>(boxed)
         }
@@ -1312,6 +1341,10 @@ where
         iter_mut: ErasedMap::iter_mut,
         drain: ErasedMap::drain,
         iter_val: ErasedMap::iter_val,
+        #[cfg(feature = "halfbrown")]
+        raw_entry: ErasedMap::raw_entry,
+        #[cfg(feature = "halfbrown")]
+        raw_entry_mut: ErasedMap::raw_entry_mut,
         entry: ErasedMap::entry,
     };
 }
