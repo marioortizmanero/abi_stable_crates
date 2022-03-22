@@ -69,7 +69,8 @@ crossbeam-channel = { version = "0.5.1", optional = true }
 serde_json = { version = "1.0.66", features = ["raw_value"], optional = true }
 paste = "1.0"
 hashbrown = "0.12.0"
-halfbrown = { version = "0.1.13", optional = true }
+# TODO: clean up after merge
+halfbrown = { version = "0.1.13", optional = true, git = "https://github.com/marioortizmanero/halfbrown.git", branch = "abi_stable" }
 
 [dependencies.core_extensions]
 default_features=false
