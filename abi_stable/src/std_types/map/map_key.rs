@@ -72,9 +72,11 @@ where
     {
         match self {
             MapKey::Value(this) => {
+                println!("hashing a value!");
                 this.hash(hasher);
             }
             MapKey::Query(this) => unsafe {
+                println!("hashing a query!");
                 this.as_ref().hash(hasher);
             },
         }

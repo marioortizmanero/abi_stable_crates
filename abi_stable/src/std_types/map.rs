@@ -110,15 +110,15 @@ pub use hashbrown::hash_map::{Entry, OccupiedEntry, VacantEntry};
     unsafe_unconstrained(S),
 )]
 pub struct RHashMap<K, V, S = DefaultHashBuilder> {
-    map: RBox<ErasedMap<K, V, S>>,
+    pub map: RBox<ErasedMap<K, V, S>>,
     #[sabi(unsafe_change_type = "VTable_Ref<K, V, S>")]
     vtable: PrefixRef<ErasedPrefix>,
 }
 
 ///////////////////////////////////////////////////////////////////////////////
 
-struct BoxedHashMap<'a, K, V, S> {
-    map: HashMap<MapKey<K>, V, S>,
+pub struct BoxedHashMap<'a, K, V, S> {
+    pub map: HashMap<MapKey<K>, V, S>,
     entry: Option<BoxedREntry<'a, K, V, S>>,
 }
 
@@ -141,7 +141,7 @@ pub type Drain<'a, K, V> = DynTrait<'a, RBox<()>, ValIterInterface<K, V>>;
     // The hasher doesn't matter
     unsafe_unconstrained(S),
 )]
-struct ErasedMap<K, V, S>(PhantomData<(K, V)>, UnsafeIgnoredType<S>);
+pub struct ErasedMap<K, V, S>(PhantomData<(K, V)>, UnsafeIgnoredType<S>);
 
 impl<'a, K: 'a, V: 'a, S: 'a> ErasedType<'a> for ErasedMap<K, V, S> {
     type Unerased = BoxedHashMap<'a, K, V, S>;

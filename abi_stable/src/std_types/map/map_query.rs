@@ -6,7 +6,7 @@ use super::*;
 pub struct MapQuery<'a, K> {
     _marker: NotCopyNotClone,
     is_equal: extern "C" fn(&K, RRef<'_, ErasedObject>) -> bool,
-    hash: extern "C" fn(RRef<'_, ErasedObject>, HasherObject<'_>),
+    pub hash: extern "C" fn(RRef<'_, ErasedObject>, HasherObject<'_>),
     query: RRef<'a, ErasedObject>,
 }
 

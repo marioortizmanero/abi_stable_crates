@@ -251,9 +251,23 @@ fn get() {
 #[test]
 fn clear() {
     let mut map = RHashMap::<&'static str, i32>::new();
+    println!("{:?}", map.map.as_ptr());
+
     map.insert("what", 10);
-    map.insert("what".into(), 10);
-    assert_eq!(map.get("what"), Some(&10));
+    map.insert("what", 10);
+    map.get("what");
+
+    dbg!(map.map.as_ptr());
+    dbg!(&map);
+    dbg!(map.get("what"));
+    map.insert("what", 10);
+    dbg!(map.get("what"));
+
+    let realmap = unsafe { &ErasedType::downcast_into(map.map).map };
+    dbg!(realmap);
+    dbg!(&realmap.get(unsafe { &MapQuery::new(&"what").as_mapkey() }));
+
+    // assert_eq!(map.get("what"), Some(&10));
 }
 
 #[test]
