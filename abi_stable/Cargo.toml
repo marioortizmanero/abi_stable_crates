@@ -90,7 +90,6 @@ serde_json = { version = "1.0.66", features = ["raw_value"] }
 rand = "0.8.4"
 fnv = "1.0.7"
 
-
 [build-dependencies]
 rustc_version = "0.4.0"
 

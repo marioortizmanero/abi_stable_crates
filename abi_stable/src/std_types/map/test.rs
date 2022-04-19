@@ -250,23 +250,10 @@ fn get() {
 
 #[test]
 fn clear() {
-    let mut map = RHashMap::<String, _>::new();
+    let mut map = RHashMap::<&'static str, i32>::new();
+    map.insert("what", 10);
     map.insert("what".into(), 10);
-    map.insert("the".into(), 5);
-    map.insert("oof".into(), 33);
-    map.insert("you".into(), 55);
-
     assert_eq!(map.get("what"), Some(&10));
-    assert_eq!(map.get("the"), Some(&5));
-    assert_eq!(map.get("oof"), Some(&33));
-    assert_eq!(map.get("you"), Some(&55));
-
-    map.clear();
-
-    assert_eq!(map.get("what"), None);
-    assert_eq!(map.get("the"), None);
-    assert_eq!(map.get("oof"), None);
-    assert_eq!(map.get("you"), None);
 }
 
 #[test]

@@ -27,3 +27,6 @@ members=[
     "tools/*",
     "playground/",
 ]
+
+[patch.crates-io]
+hashbrown = { path = "/home/mario/Programming/hashbrown" }
