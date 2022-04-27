@@ -21,7 +21,8 @@ use crate::{
 #[derive(StableAbi)]
 pub struct HasherObject<'a> {
     this: RMut<'a, ErasedObject>,
-    hash_slice: unsafe extern "C" fn(RMut<'_, ErasedObject>, RSlice<'_, u8>),
+    write: unsafe extern "C" fn(RMut<'_, ErasedObject>, RSlice<'_, u8>),
+    write_u8: unsafe extern "C" fn(RMut<'_, ErasedObject>, u8),
     finish: unsafe extern "C" fn(RRef<'_, ErasedObject>) -> u64,
 }
 
@@ -36,7 +37,8 @@ impl<'a> HasherObject<'a> {
                 // The lifetime is tied to the input.
                 this.transmute_element::<ErasedObject>()
             },
-            hash_slice: hash_slice_Hasher::<T>,
+            write: write_Hasher::<T>,
+            write_u8: write_u8_Hasher::<T>,
             finish: finish_Hasher::<T>,
         }
     }
@@ -45,7 +47,8 @@ impl<'a> HasherObject<'a> {
     pub fn as_mut<'b: 'a>(&'b mut self) -> HasherObject<'b> {
         Self {
             this: self.this.reborrow(),
-            hash_slice: self.hash_slice,
+            write: self.write,
+            write_u8: self.write_u8,
             finish: self.finish,
         }
     }
@@ -53,10 +56,14 @@ impl<'a> HasherObject<'a> {
 
 impl<'a> Hasher for HasherObject<'a> {
     fn finish(&self) -> u64 {
-        unsafe { (self.finish)(self.this.as_rref()) }
+        unreachable!()
+        // unsafe { (self.finish)(self.this.as_rref()) }
     }
     fn write(&mut self, bytes: &[u8]) {
-        unsafe { (self.hash_slice)(self.this.reborrow(), bytes.into()) }
+        unsafe { (self.write)(self.this.reborrow(), bytes.into()) }
+    }
+    fn write_u8(&mut self, val: u8) {
+        unsafe { (self.write_u8)(self.this.reborrow(), val) }
     }
 }
 

@@ -228,7 +228,7 @@ pub(crate) unsafe extern "C" fn hash_Hash<T>(
 //////////////////
 // Hasher
 
-pub(crate) unsafe extern "C" fn hash_slice_Hasher<T>(
+pub(crate) unsafe extern "C" fn write_Hasher<T>(
     this: RMut<'_, ErasedObject>,
     slic_: RSlice<'_, u8>,
 ) where
@@ -237,6 +237,17 @@ pub(crate) unsafe extern "C" fn hash_slice_Hasher<T>(
     extern_fn_panic_handling! {
         let this=unsafe{ this.transmute_into_mut::<T>() };
         this.write(slic_.into());
+    }
+}
+pub(crate) unsafe extern "C" fn write_u8_Hasher<T>(
+    this: RMut<'_, ErasedObject>,
+    val_: u8,
+) where
+    T: Hasher,
+{
+    extern_fn_panic_handling! {
+        let this=unsafe{ this.transmute_into_mut::<T>() };
+        this.write_u8(val_);
     }
 }
 pub(crate) unsafe extern "C" fn finish_Hasher<T>(this: RRef<'_, ErasedObject>) -> u64

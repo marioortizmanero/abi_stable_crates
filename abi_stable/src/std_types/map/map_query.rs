@@ -17,6 +17,9 @@ impl<'a, K> MapQuery<'a, K> {
         K: Borrow<Q>,
         Q: Hash + Eq + 'a + ?Sized,
     {
+        dbg!(query as *const _);
+        dbg!(*query as *const _);
+
         MapQuery {
             _marker: NotCopyNotClone,
             is_equal: is_equal::<K, Q>,
@@ -74,7 +77,12 @@ where
     Q: Hash + ?Sized,
 {
     extern_fn_panic_handling! {
+        println!("hashing a query!");
         let query = unsafe{ query.transmute_into_ref::<&Q>() };
+        unsafe {
+            let query_x = *query as *const Q as *const u8;
+            dbg!(*query_x);
+        }
         query.hash(&mut hasher);
     }
 }
